@@ -47,14 +47,14 @@ vtr-sentinel/
 │   ├── ring/
 │   │   └── buffer.rs        — RingBuffer<T, const N> — compile-time size
 │   ├── event/
-│   │   ├── kind.rs          — EventKind: 43 variants, repr(u8)
+│   │   ├── kind.rs          — EventKind: 46 variants, repr(u8)
 │   │   └── record.rs        — EventRecord: 16 bytes, CRC-32 verified
 │   ├── probe/
 │   │   ├── entropy.rs       — Shannon entropy, O(256) fixed, no alloc
 │   │   ├── dnp3.rs          — CRC-16 IEEE 1815-2012
 │   │   └── syscall.rs       — kqueue + /proc polling
 │   └── custody/
-│       └── chain.rs         — Merkle chain SHA-256, append-only
+│       └── chain.rs         — SHA-256 hash chain, append-only
 ```
 
 ---
@@ -98,7 +98,7 @@ Records that require immediate custody (tampering indicators, hash
 mismatches, pledge violations) bypass the ring buffer and go directly
 to the append-only custody file.
 
-The custody file is a Merkle chain — each block includes the SHA-256
+The custody file is a SHA-256 hash chain — each block includes the SHA-256
 of the previous block. A sequence jump in the monotonic counter is
 itself an `EventKind::CustodySequenceJump` event.
 
