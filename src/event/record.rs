@@ -88,20 +88,49 @@ impl EventRecord {
     }
 
     pub fn verify(&self) -> Result<(), crate::error::VtrError> {
-        let data: [u8; 12] = [
-            self.kind, self.severity,
-            (self.source_id & 0xFF) as u8, (self.source_id >> 8) as u8,
-            (self.pid & 0xFF) as u8, ((self.pid >> 8) & 0xFF) as u8,
-            ((self.pid >> 16) & 0xFF) as u8, ((self.pid >> 24) & 0xFF) as u8,
-            (self.ts_delta & 0xFF) as u8, ((self.ts_delta >> 8) & 0xFF) as u8,
-            ((self.ts_delta >> 16) & 0xFF) as u8, ((self.ts_delta >> 24) & 0xFF) as u8,
-        ];
-        if Crc32::compute(&data).value() == self.checksum { Ok(()) }
+        // Use to_bytes() to get the canonical byte representation —
+        // avoids any divergence between field extraction and wire layout.
+        let raw = self.to_bytes();
+        let computed = Crc32::compute(&raw[0..12]).value();
+        let stored   = u32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]);
+        if computed == stored { Ok(()) }
         else { Err(crate::error::VtrError::new(
             crate::error::ErrorKind::ChecksumInvalid,
             crate::error::ErrorLayer::Protocol,
             crate::error::ErrorSeverity::DaemonFatal, 0)) }
     }
+
+
+    /// Deserialize from 16 raw bytes read from /dev/vtr0.
+    /// This is the cross-language contract entry point: bytes produced
+    /// by vtr_event_build() in C must parse correctly here.
+    ///
+    /// Returns Err if CRC-32 verification fails.
+    pub fn from_bytes(raw: &[u8; 16]) -> Result<Self, crate::error::VtrError> {
+        let kind      = raw[0];
+        let severity  = raw[1];
+        let source_id = u16::from_le_bytes([raw[2], raw[3]]);
+        let pid       = u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]);
+        let ts_delta  = u32::from_le_bytes([raw[8], raw[9], raw[10], raw[11]]);
+        let checksum  = u32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]);
+
+        let record = Self { kind, severity, source_id, pid, ts_delta, checksum };
+        record.verify()?;
+        Ok(record)
+    }
+
+    #[must_use]
+    pub fn kind_raw(&self)      -> u8  { self.kind }
+    #[must_use]
+    pub fn severity_raw(&self)  -> u8  { self.severity }
+    #[must_use]
+    pub fn source_id_raw(&self) -> u16 { self.source_id }
+    #[must_use]
+    pub fn pid(&self)           -> u32 { self.pid }
+    #[must_use]
+    pub fn ts_delta_raw(&self)  -> u32 { self.ts_delta }
+    #[must_use]
+    pub fn checksum(&self)      -> u32 { self.checksum }
 
     pub fn requires_immediate_custody(&self) -> bool {
         EventKind::from_u8(self.kind).map(|k| k.requires_immediate_custody()).unwrap_or(true)
@@ -119,3 +148,86 @@ impl EventRecord {
          ((self.checksum >> 16) & 0xFF) as u8, ((self.checksum >> 24) & 0xFF) as u8]
     }
 }
+
+#[cfg(test)]
+mod cross_language_tests {
+    use super::*;
+
+    #[test]
+    fn test_diagnose_crc() {
+        let genesis_data: [u8; 12] = [
+            0x61, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let genesis_crc = Crc32::compute(&genesis_data).value();
+        let genesis_stored = u32::from_le_bytes([0x71, 0x08, 0x86, 0x90]);
+        eprintln!("genesis computed=0x{:08X} stored=0x{:08X}", genesis_crc, genesis_stored);
+
+        let fork_data: [u8; 12] = [
+            0x20, 0x00, 0x07, 0x00, 0x2d, 0x0a,
+            0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        ];
+        let fork_crc = Crc32::compute(&fork_data).value();
+        let fork_stored = u32::from_le_bytes([0x50, 0xfd, 0xc7, 0xdb]);
+        eprintln!("fork    computed=0x{:08X} stored=0x{:08X}", fork_crc, fork_stored);
+    }
+
+    #[test]
+    fn test_genesis_event_from_c_bytes() {
+        // Bytes from FreeBSD 14.4-RELEASE-p8 hexdump after CRC table fix
+        // kind=0x60 SENTINEL_STARTED, severity=0, src=0x0000, pid=0, ts=0
+        // CRC: 0x5387AA67 (little-endian: 67 aa 87 53)
+        let raw: [u8; 16] = [
+            0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x67, 0xaa, 0x87, 0x53,
+        ];
+        let record = EventRecord::from_bytes(&raw).expect("genesis must parse");
+        assert_eq!(record.kind_raw(),      0x60);
+        assert_eq!(record.severity_raw(),  0x00);
+        assert_eq!(record.source_id_raw(), 0x0000);
+        assert_eq!(record.pid(),           0);
+        assert_eq!(record.ts_delta_raw(),  0);
+    }
+
+    #[test]
+    fn test_fork_event_from_c_bytes() {
+        // Bytes from FreeBSD 14.4-RELEASE-p8 hexdump after CRC table fix
+        // kind=0x20 STATE_CONTAMINATION, severity=0, src=0x0007, pid=0x0942=2370, ts=1
+        // CRC: 0xC7A4E1C8 (little-endian: c8 e1 a4 c7)
+        let raw: [u8; 16] = [
+            0x20, 0x00, 0x07, 0x00, 0x42, 0x09, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0xc8, 0xe1, 0xa4, 0xc7,
+        ];
+        let record = EventRecord::from_bytes(&raw).expect("fork must parse");
+        assert_eq!(record.kind_raw(),      0x20);
+        assert_eq!(record.severity_raw(),  0x00);
+        assert_eq!(record.source_id_raw(), 0x0007);
+        assert_eq!(record.pid(),           0x0942);
+        assert_eq!(record.ts_delta_raw(),  1);
+    }
+
+    #[test]
+    fn test_exec_event_from_c_bytes() {
+        let raw: [u8; 16] = [
+            0x45, 0x00, 0x07, 0x00, 0x2d, 0x0a, 0x00, 0x00,
+            0x02, 0x00, 0x00, 0x00, 0xb4, 0xfd, 0xc3, 0x5d,
+        ];
+        let record = EventRecord::from_bytes(&raw).expect("exec must parse");
+        assert_eq!(record.kind_raw(),      0x45);
+        assert_eq!(record.severity_raw(),  0x00);
+        assert_eq!(record.source_id_raw(), 0x0007);
+        assert_eq!(record.pid(),           2605);
+        assert_eq!(record.ts_delta_raw(),  2);
+    }
+
+    #[test]
+    fn test_invalid_crc_rejected() {
+        let mut raw: [u8; 16] = [
+            0x20, 0x00, 0x07, 0x00, 0x2d, 0x0a, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x50, 0xfd, 0xc7, 0xdb,
+        ];
+        raw[15] ^= 0xFF;
+        assert!(EventRecord::from_bytes(&raw).is_err());
+    }
+}
+
