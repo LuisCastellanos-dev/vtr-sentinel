@@ -1,0 +1,18 @@
+# VTR-METH-001 v5.1 — Clippy enforcement
+# No panic in production code. No unwrap. No expect.
+# Every error is a type — not a crash.
+
+disallowed-macros = [
+    { path = "std::panic",           reason = "Use VtrError instead" },
+    { path = "core::panic",          reason = "Use VtrError instead" },
+]
+
+disallowed-methods = [
+    { path = "std::option::Option::unwrap",  reason = "Handle Option explicitly" },
+    { path = "std::result::Result::unwrap",  reason = "Handle Result explicitly" },
+    { path = "std::option::Option::expect",  reason = "Use ok_or(VtrError) instead" },
+    { path = "std::result::Result::expect",  reason = "Handle Result explicitly" },
+]
+
+# Enforce must_use on all Results
+must-use-result = true

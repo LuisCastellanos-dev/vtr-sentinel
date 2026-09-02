@@ -1,0 +1,43 @@
+[package]
+name        = "vtr-sentinel"
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["Vector Telemetry Research <contact@vectortelemetryresearch.com>"]
+license     = "BSD-2-Clause"
+description = "Lightweight security sentinel for FreeBSD — byte-level event monitoring with forensic chain of custody"
+repository  = "https://github.com/LuisCastellanos-dev/vtr-sentinel"
+readme      = "README.md"
+keywords    = ["security", "freebsd", "forensics", "ot", "monitoring"]
+categories  = ["network-programming", "os"]
+
+# Target: FreeBSD x86_64 — Pentium Silver
+# No Linux, no Debian, no Arch
+# Static binary — no dynamic dependencies
+
+[profile.release]
+opt-level     = 3       # Maximum optimization for Pentium Silver
+lto           = true    # Link-time optimization — smaller binary
+codegen-units = 1       # Single codegen unit — better optimization
+panic         = "abort" # No unwinding — no panic runtime
+strip         = true    # Strip symbols — smaller binary
+
+[profile.dev]
+opt-level = 1           # Some optimization even in dev — catch real perf issues
+
+# Zero external dependencies in core
+# Every dependency must justify its weight on a Pentium Silver
+[dependencies]
+# sha2 — for custody chain SHA-256
+# Chosen over ring: pure Rust, no C FFI, compiles to static binary
+sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+# No test dependencies with external I/O
+
+[lints.rust]
+# Enforce no-panic discipline
+# clippy::panic and clippy::unwrap_used enforced via clippy.toml
+
+[[bin]]
+name = "vtr-sentinel"
+path = "src/main.rs"
