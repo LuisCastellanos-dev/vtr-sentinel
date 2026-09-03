@@ -27,6 +27,8 @@ opt-level = 1           # Some optimization even in dev — catch real perf issu
 # Zero external dependencies in core
 # Every dependency must justify its weight on a Pentium Silver
 [dependencies]
+# libc — FreeBSD syscalls: open(2), read(2), kqueue(2), kevent(2)
+libc = "0.2"
 # sha2 — for custody chain SHA-256
 # Chosen over ring: pure Rust, no C FFI, compiles to static binary
 sha2 = { version = "0.10", default-features = false }
