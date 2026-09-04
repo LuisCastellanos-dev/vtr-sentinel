@@ -59,6 +59,21 @@ impl DeviceReader {
             libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, 16)
         };
         if bytes_read == 0 { return Ok(None); }
+        if bytes_read < 0 {
+            // VS-004 fix: negative return means OS error.
+            // EIO from kernel = CRC fail in vtr_cdev_read().
+            // Map to ChecksumInvalid, not PayloadOverflow.
+            let errno = unsafe { *libc::__error() };
+            let kind = if errno == libc::EIO {
+                ErrorKind::ChecksumInvalid
+            } else {
+                ErrorKind::KqueueEvent
+            };
+            return Err(VtrError::new(
+                kind, ErrorLayer::Protocol,
+                ErrorSeverity::DaemonFatal, errno,
+            ));
+        }
         if bytes_read != 16 {
             return Err(VtrError::new(
                 ErrorKind::PayloadOverflow, ErrorLayer::Protocol,
