@@ -9,7 +9,7 @@ use crate::event::record::EventRecord;
 pub enum PushResult { Stored, OldestDiscarded }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PopResult { Record(EventRecord), Empty }
+pub enum PopResult<T> { Record(T), Empty }
 
 pub struct RingBuffer<T, const N: usize> where T: Copy {
     buf:   [T; N],
@@ -50,7 +50,7 @@ impl<T, const N: usize> RingBuffer<T, N> where T: Copy {
         }
     }
 
-    pub fn pop(&mut self) -> PopResult {
+    pub fn pop(&mut self) -> PopResult<T> {
         if self.is_empty() { return PopResult::Empty; }
         let item = self.buf[self.head];
         self.head = (self.head + 1) & (N - 1);

@@ -13,6 +13,8 @@ mod event { pub mod kind; pub mod record; }
 mod ring { pub mod buffer; }
 mod probe { pub mod entropy; pub mod dnp3; }
 mod custody { pub mod chain; }
+#[cfg(test)]
+mod tests;
 mod device { pub mod reader; }
 
 use error::{VtrError, ErrorSeverity};
