@@ -25,6 +25,24 @@ use custody::chain::{CustodyChain, CustodyBlock};
 use device::reader::DeviceReader;
 
 fn main() {
+    // VS-010 fix: accept optional file path argument for custody chain output
+    let chain_path: Option<std::path::PathBuf> = std::env::args().nth(1).map(Into::into);
+    let mut chain_file: Option<std::fs::File> = if let Some(ref path) = chain_path {
+        match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            Ok(f) => {
+                eprintln!("VTR-SENTINEL: custody chain -> {}", path.display());
+                Some(f)
+            }
+            Err(e) => {
+                eprintln!("VTR-SENTINEL: cannot open chain file {}: {}", path.display(), e);
+                return;
+            }
+        }
+    } else {
+        eprintln!("VTR-SENTINEL: no chain file specified, stdout only");
+        None
+    };
+
     let mut ring  = EventRingBuffer::for_sentinel();
     let mut chain = CustodyChain::new();
 
@@ -34,7 +52,7 @@ fn main() {
         PushResult::OldestDiscarded => {}
     }
     match chain.seal(&genesis) {
-        Ok(block) => print_block("GENESIS", &block),
+        Ok(block) => { print_block("GENESIS", &block, &mut chain_file); }
         Err(e)    => { print_error("custody seal genesis", &e); return; }
     }
 
@@ -65,7 +83,7 @@ fn main() {
         }
 
         match chain.seal(&record) {
-            Ok(block) => print_block("EVENT", &block),
+            Ok(block) => { print_block("EVENT", &block, &mut chain_file); }
             Err(e) => {
                 print_error("custody seal", &e);
                 if e.severity == ErrorSeverity::DaemonFatal { break; }
@@ -76,12 +94,17 @@ fn main() {
     eprintln!("VTR-SENTINEL: event loop exited");
 }
 
-fn print_block(label: &str, block: &CustodyBlock) {
-    eprintln!(
-        "VTR-BLOCK [{}] seq={} kind=0x{:02X} pid={} hash={:02x}{:02x}{:02x}{:02x}",
+fn print_block(label: &str, block: &CustodyBlock, chain_file: &mut Option<std::fs::File>) {
+    let line = format!(
+        "VTR-BLOCK [{}] seq={} kind=0x{:02X} pid={} hash={:02x}{:02x}{:02x}{:02x}\n",
         label, block.seq, block.record.kind_raw(), block.record.pid(),
         block.hash[0], block.hash[1], block.hash[2], block.hash[3],
     );
+    eprint!("{}", line);
+    if let Some(ref mut f) = chain_file {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+    }
 }
 
 fn print_error(ctx: &str, e: &error::VtrError) {
