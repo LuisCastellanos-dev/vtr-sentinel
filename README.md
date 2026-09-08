@@ -62,11 +62,20 @@ Target: FreeBSD x86_64 (Pentium Silver). Static binary, no dynamic dependencies.
 
 Kernel module: see vtr-sentinel-kmod (separate repository).
 
-## VS-010 — Pending
+## VS-010 -- FIXED + VERIFIED (commit 3ff7260)
 
-The daemon currently writes custody chain to stdout only.
-The file path argument is not used for persistent output.
-Fix pending — classified as CANDIDATE VS-010.
+The daemon now accepts an optional file path argument.
+Custody chain is written to file (append mode) AND stderr.
+
+Usage:
+    ./vtr-sentinel /path/to/custody.chain
+
+If no argument: stderr only (backward compatible).
+If file cannot be opened: daemon exits with error.
+
+Production verification: FreeBSD 14.4-RELEASE-p8 amd64
+  58 blocks persisted to /tmp/vtr-test/custody.chain
+  SHA-256: 8fbe32323fbffc7cd7c13b2dec8c8e0c2e48555f4134c43e9cbcf2c9f3d79b33
 
 ## License
 
